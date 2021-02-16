@@ -1,15 +1,20 @@
 /* This code doesn't have any copyrights and licenses.
  * Restrictions are dogmas. */
 
+#include <sys/ioctl.h>
+#include <sys/mman.h>
+#include <fcntl.h>
+#include <stdio.h>
+#include <string.h>
+#include <gtk/gtk.h>
 #include "camera.h"
 
 int
-device_open(struct dev_info *dinfo)
+device_open (struct dev_info * dinfo)
 {
     dinfo->fd = open("/dev/video0", O_RDWR);
     if (dinfo->fd < 0) {
         perror("Failed to open the device");
-
         return -1;
     }
 
@@ -17,26 +22,23 @@ device_open(struct dev_info *dinfo)
 }
 
 int
-device_streamon(struct dev_info *dinfo)
+device_streamon (struct dev_info * dinfo)
 {
     int type;
 
     memset(&dinfo->plane[1], 0, sizeof(dinfo->plane[1]));
-
     dinfo->plane[1].type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     dinfo->plane[1].memory = V4L2_MEMORY_MMAP;
     dinfo->plane[1].index = 0;
 
     if (ioctl(dinfo->fd, VIDIOC_QBUF, &dinfo->plane[1]) < 0) {
         perror("Failed to put the buffer into the queue");
-
         return -1;
     }
 
     type = dinfo->plane[1].type;
     if (ioctl(dinfo->fd, VIDIOC_STREAMON, &type) < 0) {
         perror("Failed to activate a frame streaming");
-
         return -1;
     }
 
@@ -44,14 +46,13 @@ device_streamon(struct dev_info *dinfo)
 }
 
 int
-device_streamoff(struct dev_info *dinfo)
+device_streamoff (struct dev_info * dinfo)
 {
     int type;
 
     type = dinfo->plane[1].type;
     if (ioctl(dinfo->fd, VIDIOC_STREAMOFF, &type) < 0) {
         perror("Failed to deactivate a frame streaming");
-
         return -1;
     }
 
@@ -59,11 +60,10 @@ device_streamoff(struct dev_info *dinfo)
 }
 
 int
-device_close(int fd)
+device_close (int fd)
 {
     if (close(fd) == -1) {
         perror("Failed to close the device");
-
         return -1;
     }
 
@@ -71,13 +71,12 @@ device_close(int fd)
 }
 
 int
-caps_print(int fd)
+caps_print (int fd)
 {
     struct v4l2_capability caps;
 
     if (ioctl(fd, VIDIOC_QUERYCAP, &caps) < 0) {
         perror("Failed to get the device's capabilities");
-
         return -1;
     }
 
@@ -91,7 +90,6 @@ caps_print(int fd)
 
     if (!(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE)) {
         perror("A video capturing is not supported");
-
         return -1;
     }
 
@@ -99,7 +97,6 @@ caps_print(int fd)
 
     if (!(caps.capabilities & V4L2_CAP_STREAMING)) {
         perror("The frame streaming is not supported");
-
         return -1;
     }
 
@@ -109,12 +106,11 @@ caps_print(int fd)
 }
 
 int
-format_set(int fd)
+format_set (int fd)
 {
     struct v4l2_format fmt;
 
     memset(&fmt, 0, sizeof(fmt));
-
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     fmt.fmt.pix.pixelformat = V4L2_PIX_FMT_YUYV;
     fmt.fmt.pix.width = PIX_WIDTH;
@@ -122,7 +118,6 @@ format_set(int fd)
 
     if (ioctl(fd, VIDIOC_S_FMT, &fmt) < 0) {
         perror("Failed to set a frame's format");
-
         return -1;
     }
 
@@ -134,19 +129,17 @@ format_set(int fd)
 }
 
 int
-buf_req(int fd)
+buf_req (int fd)
 {
     struct v4l2_requestbuffers rb;
 
     memset(&rb, 0, sizeof(rb));
-
     rb.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     rb.memory = V4L2_MEMORY_MMAP;
     rb.count = 1;
 
     if (ioctl(fd, VIDIOC_REQBUFS, &rb) < 0) {
         perror("Failed to request the buffer");
-
         return -1;
     }
 
@@ -154,17 +147,15 @@ buf_req(int fd)
 }
 
 int
-buf_alloc(struct dev_info *dinfo)
+buf_alloc (struct dev_info * dinfo)
 {
     memset(&dinfo->plane[0], 0, sizeof(dinfo->plane[0]));
-
     dinfo->plane[0].type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     dinfo->plane[0].memory = V4L2_MEMORY_MMAP;
     dinfo->plane[0].index = 0;
 
     if (ioctl(dinfo->fd, VIDIOC_QUERYBUF, &dinfo->plane[0]) < 0) {
         perror("Failed to query the buffer");
-
         return -1;
     }
 
@@ -172,14 +163,12 @@ buf_alloc(struct dev_info *dinfo)
 }
 
 int
-buf_map(struct dev_info *dinfo)
+buf_map (struct dev_info * dinfo)
 {
-    dinfo->buffer = mmap(NULL, dinfo->plane[0].length,
-        PROT_READ | PROT_WRITE, MAP_SHARED, dinfo->fd,
-        dinfo->plane[0].m.offset);
+    dinfo->buffer = mmap(NULL, dinfo->plane[0].length, PROT_READ | PROT_WRITE, 
+        MAP_SHARED, dinfo->fd, dinfo->plane[0].m.offset);
     if (dinfo->buffer == MAP_FAILED) {
         perror("Failed to init the device");
-
         return -1;
     }
 
@@ -189,12 +178,11 @@ buf_map(struct dev_info *dinfo)
 }
 
 int
-buf_capture(struct dev_info *dinfo)
+buf_capture (struct dev_info * dinfo)
 {
     /* Get the buffer. */
     if (ioctl(dinfo->fd, VIDIOC_DQBUF, &dinfo->plane[1]) < 0) {
         perror("Failed to retrieve the buffer");
-
         return -1;
     }
 
@@ -203,7 +191,6 @@ buf_capture(struct dev_info *dinfo)
 
     if (ioctl(dinfo->fd, VIDIOC_QBUF, &dinfo->plane[1]) < 0) {
         perror("Failed to put the buffer into the queue");
-
         return -1;
     }
 
@@ -211,11 +198,10 @@ buf_capture(struct dev_info *dinfo)
 }
 
 int
-buf_unmap(struct dev_info *dinfo)
+buf_unmap (struct dev_info * dinfo)
 {
     if (munmap(dinfo->buffer, dinfo->plane[0].length) == -1) {
         perror("Failed to deinit the device");
-
         return -1;
     }
 
@@ -223,28 +209,18 @@ buf_unmap(struct dev_info *dinfo)
 }
 
 size_t
-buf_get_len(struct dev_info *dinfo)
+buf_get_len (struct dev_info * dinfo)
 {
-    size_t len;
-
-    len = dinfo->plane[1].length;
-
-    return len;
+    return dinfo->plane[1].length;
 }
 
 /* Thank you very much, Redek (https://cutt.ly/2ryV2lz). */
 uint8_t *
-yuv_to_rgb(const uint8_t *buffer)
+yuv_to_rgb (const uint8_t * buffer)
 {
-    uint8_t *rgb_raw = g_malloc0_n(RGB_RAW_LEN, sizeof(uint8_t));
-    int y;
-    int cr;
-    int cb;
-    double r;
-    double g;
-    double b;
-    int i;
-    int j;
+    uint8_t * rgb_raw = g_malloc0_n(RGB_RAW_LEN, sizeof(uint8_t));
+    int y, cr, cb, i, j;
+    double r, g, b;
 
     for (i = 0, j = 0; i < RGB_RAW_LEN; i += 6, j += 4) {
         y = buffer[j];

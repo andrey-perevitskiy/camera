@@ -3,9 +3,9 @@
 
 /* This is client, which receives frames, from the camera. */
 
-#include <stdlib.h>
+#include <netinet/in.h>
 #include <arpa/inet.h>
-
+#include <gtk/gtk.h>
 #include "camera.h"
 
 enum receive_status {
@@ -15,42 +15,33 @@ enum receive_status {
 
 struct source {
     GSource gsrc;
-    GPollFD *gpfd;
+    GPollFD * gpfd;
     gsize bytes_r;
 };
 
 struct data {
-    unsigned int fr_draw_tid;
-
+    unsigned fr_draw_tid;
     struct sockaddr_in servaddr;
-    char *addr; /* A remote address. */
-    unsigned int port;
-
-    GSocket *gsock;
-
-    struct source *src;
-
-    uint8_t *buf; /* The raw frame. */
-    GtkWidget *area;
-
+    char * addr; /* A remote address. */
+    unsigned port;
+    GSocket * gsock;
+    struct source * src;
+    uint8_t * buf; /* A raw frame. */
+    GtkWidget * area;
     gboolean is_recv;
 };
 
-static gboolean      gsrc_dispatch(GSource *gsrc,
-                                   GSourceFunc cb,
-                                   gpointer data);
-static int           receive_prepare(struct data *d);
-static void          receive_start(GtkWidget *widget, gpointer data);
-static void          receive_stop(GtkWidget *widget, gpointer data);
-static int           frame_receive(struct data *d);
-static gboolean      frame_draw(gpointer data);
-static gboolean      area_redraw(GtkWidget *widget,
-                                 cairo_t *cr,
-                                 gpointer data);
-static void          error_throw(GError *err);
-static struct data * data_alloc(void);
-static void          data_free(struct data *d);
-static void          app_quit(GtkWidget *widget, gpointer data);
+static gboolean gsrc_dispatch (GSource * gsrc, GSourceFunc cb, gpointer data);
+static int receive_prepare (struct data * d);
+static void receive_start (GtkWidget * widget, gpointer data);
+static void receive_stop (GtkWidget * widget, gpointer data);
+static int frame_receive (struct data * d);
+static gboolean frame_draw (gpointer data);
+static gboolean area_redraw (GtkWidget * widget, cairo_t * cr, gpointer data);
+static void error_throw (GError * err);
+static struct data * data_alloc (void);
+static void data_free (struct data * d);
+static void app_quit (GtkWidget * widget, gpointer data);
 
 static GSourceFuncs gsf = {
     .prepare = NULL,
@@ -59,19 +50,14 @@ static GSourceFuncs gsf = {
     .finalize = NULL
 };
 
-int main(int argc, char *argv[])
+int
+main (int argc, char * argv [])
 {
-    GtkWidget *window;
-    GtkWidget *area;
-    GtkWidget *btn_rc_start;
-    GtkWidget *btn_rc_stop;
-    GtkWidget *grid;
-
-    struct data *data = data_alloc();
+    GtkWidget * window, * area, * btn_rc_start, * btn_rc_stop, * grid;
+    struct data * data = data_alloc();
 
     if (argc != 3) {
         printf("Usage: %s addr port.\n", argv[0]);
-
         return -1;
     }
 
@@ -115,19 +101,17 @@ int main(int argc, char *argv[])
 }
 
 static gboolean
-gsrc_dispatch(GSource *gsrc, GSourceFunc cb, gpointer data)
+gsrc_dispatch (GSource * gsrc, GSourceFunc cb, gpointer data)
 {
-    struct source *src = (struct source *) gsrc;
+    (void) cb;
+    struct source * src = (struct source *) gsrc;
 
-    if (src->gpfd != NULL) {
-        if (src->gpfd->revents & G_IO_IN) {
+    if (src->gpfd != NULL)
+        if (src->gpfd->revents & G_IO_IN)
             if (frame_receive(data) == -1) {
                 receive_stop(NULL, data);
-
                 return G_SOURCE_REMOVE;
             }
-        }
-    }
 
     g_main_context_iteration(NULL, TRUE);
 
@@ -135,18 +119,17 @@ gsrc_dispatch(GSource *gsrc, GSourceFunc cb, gpointer data)
 }
 
 static int
-receive_prepare(struct data *d)
+receive_prepare (struct data * d)
 {
-    GSocketAddress *gaddr;
+    GSocketAddress * gaddr;
     int status;
-    GError *err = NULL;
+    GError * err = NULL;
 
     d->gsock = g_socket_new(G_SOCKET_FAMILY_IPV4, G_SOCKET_TYPE_STREAM,
         G_SOCKET_PROTOCOL_TCP, &err);
     if (d->gsock == NULL) {
         printf("Failed to create the socket.\n");
         error_throw(err);
-
         return -1;
     }
 
@@ -158,7 +141,6 @@ receive_prepare(struct data *d)
         &d->servaddr.sin_addr);
     if (status <= 0) {
         printf("Failed to convert the address.\n");
-
         return -1;
     }
 
@@ -166,14 +148,12 @@ receive_prepare(struct data *d)
         sizeof(d->servaddr));
     if (gaddr == NULL) {
         printf("Failed to convert a native to GSocketAddress.\n");
-
         return -1;
     }
 
     if (!g_socket_connect(d->gsock, gaddr, NULL, &err)) {
         printf("Failed to connect to the socket.\n");
         error_throw(err);
-
         return -1;
     }
 
@@ -183,19 +163,18 @@ receive_prepare(struct data *d)
 }
 
 static void
-receive_start(GtkWidget *widget, gpointer data)
+receive_start (GtkWidget * widget, gpointer data)
 {
-    struct data *d = data;
+    (void) widget;
+    struct data * d = data;
 
     if (d->is_recv) {
         printf("A frames receiving is already started.\n");
-
         return;
     }
 
     if (receive_prepare(d) == -1) {
         printf("Failed to prepare a frames receiving.\n");
-
         return;
     }
 
@@ -214,13 +193,13 @@ receive_start(GtkWidget *widget, gpointer data)
 }
 
 static void
-receive_stop(GtkWidget *widget, gpointer data)
+receive_stop (GtkWidget * widget, gpointer data)
 {
-    struct data *d = data;
+    (void) widget;
+    struct data * d = data;
 
     if (!d->is_recv) {
         printf("A frames receiving is not started.\n");
-
         return;
     }
 
@@ -241,38 +220,35 @@ receive_stop(GtkWidget *widget, gpointer data)
 }
 
 static int
-frame_receive(struct data *d)
+frame_receive (struct data * d)
 {
     gssize bytes;
-    GError *err = NULL;
+    GError * err = NULL;
 
     bytes = g_socket_receive(d->gsock, (gchar *) d->buf + d->src->bytes_r,
         YUV_RAW_LEN - d->src->bytes_r, NULL, &err);
     if (bytes == -1) {
         printf("Failed to read a data from the socket.\n");
         error_throw(err);
-
         return RECEIVE_STOP;
-    } else if (bytes == 0) {
+    }
+    else if (bytes == 0) {
         printf("The connection was closed.\n");
-
         return RECEIVE_STOP;
     }
 
     d->src->bytes_r += bytes;
-
     if (d->src->bytes_r < YUV_RAW_LEN)
         return RECEIVE_CONTINUE;
-
     d->src->bytes_r = 0;
 
     return RECEIVE_CONTINUE;
 }
 
 static gboolean
-frame_draw(gpointer data)
+frame_draw (gpointer data)
 {
-    struct data *d = data;
+    struct data * d = data;
 
     gtk_widget_queue_draw(d->area);
 
@@ -280,43 +256,33 @@ frame_draw(gpointer data)
 }
 
 static gboolean
-area_redraw(GtkWidget *widget, cairo_t *cr, gpointer data)
+area_redraw (GtkWidget * widget, cairo_t * cr, gpointer data)
 {
-    struct data *d = data;
-    GdkPixbuf *pixbuf;
-    uint8_t *rgb_raw;
+    (void) widget;
+    struct data * d = data;
+    GdkPixbuf * pixbuf;
+    uint8_t * rgb_raw;
     const GdkRectangle rect = {
         .x = 0,
         .y = 0,
         .width = PIX_WIDTH,
         .height = PIX_HEIGHT
     };
+    const GdkRGBA bg = {0};
 
     gdk_cairo_rectangle(cr, &rect);
 
     if (!d->is_recv || d->buf == NULL) {
-        const GdkRGBA bg = {
-            .red = 0,
-            .green = 0,
-            .blue = 0,
-            .alpha = 0
-        };
-
         gdk_cairo_set_source_rgba(cr, &bg);
-
         cairo_fill(cr);
-
         return FALSE;
     }
 
     /* Draw the received frame. */
     rgb_raw = yuv_to_rgb(d->buf);
-
     pixbuf = gdk_pixbuf_new_from_data(rgb_raw, GDK_COLORSPACE_RGB, FALSE,
         8, PIX_WIDTH, PIX_HEIGHT, 3 * PIX_WIDTH, NULL, NULL);
-
     gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
-
     cairo_fill(cr);
 
     g_free(rgb_raw);
@@ -325,9 +291,9 @@ area_redraw(GtkWidget *widget, cairo_t *cr, gpointer data)
 }
 
 static void
-error_throw(GError *err)
+error_throw (GError * err)
 {
-    if (err) {
+    if (err != NULL) {
         printf("%s\n", err->message);
 
         g_error_free(err);
@@ -335,9 +301,9 @@ error_throw(GError *err)
 }
 
 static struct data *
-data_alloc(void)
+data_alloc (void)
 {
-    struct data *data = g_malloc0(sizeof(struct data));
+    struct data * data = g_malloc0(sizeof(struct data));
 
     data->buf = g_malloc0_n(YUV_RAW_LEN, sizeof(uint8_t));
     data->is_recv = FALSE;
@@ -346,7 +312,7 @@ data_alloc(void)
 }
 
 static void
-data_free(struct data *d)
+data_free (struct data * d)
 {
     g_free(d->buf);
     g_free(d->addr);
@@ -358,9 +324,10 @@ data_free(struct data *d)
 }
 
 static void
-app_quit(GtkWidget *widget, gpointer data)
+app_quit (GtkWidget * widget, gpointer data)
 {
-    struct data *d = data;
+    (void) widget;
+    struct data * d = data;
 
     if (d->is_recv)
         receive_stop(NULL, d);

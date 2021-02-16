@@ -3,9 +3,8 @@
 
 /* This is server, which sends frames, from the camera, to the network. */
 
-#include <stdlib.h>
-#include <errno.h>
-
+#include <netinet/in.h>
+#include <gtk/gtk.h>
 #include "camera.h"
 
 #define MAX_CONN 1024
@@ -17,56 +16,46 @@ enum send_status {
 
 struct source {
     GSource gsrc;
-    GPollFD *gpfd[MAX_CONN + 1];
+    GPollFD * gpfd [MAX_CONN + 1];
 };
 
 struct data {
-    unsigned int fr_draw_tid;
-
+    unsigned fr_draw_tid;
     struct sockaddr_in servaddr;
-    unsigned int port;
-
-    GSocketService *sservice;
-    unsigned long ss_sid; /* A socket service signal ID. */
-    GSocketConnection *gconn[MAX_CONN];
-    unsigned int conn_q;
-    GSocket *gsock[MAX_CONN];
-
-    struct source *src;
-
-    GtkWidget *area;
-
+    unsigned port;
+    GSocketService * sservice;
+    unsigned ss_sid; /* A socket service signal ID. */
+    GSocketConnection * gconn [MAX_CONN];
+    unsigned conn_q;
+    GSocket * gsock [MAX_CONN];
+    struct source * src;
+    GtkWidget * area;
     gboolean is_bcast;
 };
 
 struct box {
-    struct data *d;
-    struct dev_info *dinfo;
+    struct data * d;
+    struct dev_info * dinfo;
 };
 
-static void         broadcast_start(GtkWidget *widget, gpointer data);
-static void         broadcast_stop(GtkWidget *widget, gpointer data);
-static int          server_prepare(struct data *d);
-static void         server_stop(struct data *d);
-static gboolean     gsrc_dispatch(GSource *gsrc,
-                                  GSourceFunc cb,
-                                  gpointer data);
-static gboolean     conn_accept(GSocketService *sservice,
-                                GSocketConnection *gconn,
-                                GObject *object,
-                                gpointer data);
-static void         conn_close(struct box *box, unsigned int connid);
-static int          device_init(struct dev_info *dinfo);
-static int          device_deinit(struct dev_info *dinfo);
-static gboolean     frame_draw(gpointer data);
-static int          frame_send(struct box *box, unsigned int connid);
-static gboolean     area_redraw(GtkWidget *widget,
-                                cairo_t *cr,
-                                gpointer data);
-static void         error_throw(GError *err);
-static struct box * box_alloc(void);
-static void         box_free(struct box *box);
-static void         app_quit(GtkWidget *widget, gpointer data);
+static void broadcast_start (GtkWidget * widget, gpointer data);
+static void broadcast_stop (GtkWidget * widget, gpointer data);
+static int server_prepare (struct data * d);
+static void server_stop (struct data * d);
+static gboolean gsrc_dispatch (GSource * gsrc, GSourceFunc cb, gpointer data);
+static gboolean conn_accept (GSocketService * sservice,
+                             GSocketConnection * gconn, GObject * object,
+                             gpointer data);
+static void conn_close (struct box * box, unsigned connid);
+static int device_init (struct dev_info * dinfo);
+static int device_deinit (struct dev_info * dinfo);
+static gboolean frame_draw (gpointer data);
+static int frame_send (struct box * box, unsigned connid);
+static gboolean area_redraw (GtkWidget * widget, cairo_t * cr, gpointer data);
+static void error_throw (GError * err);
+static struct box * box_alloc (void);
+static void box_free (struct box * box);
+static void app_quit (GtkWidget * widget, gpointer data);
 
 static GSourceFuncs gsf = {
     .prepare = NULL,
@@ -75,19 +64,14 @@ static GSourceFuncs gsf = {
     .finalize = NULL
 };
 
-int main(int argc, char *argv[])
+int
+main (int argc, char * argv [])
 {
-    GtkWidget *window;
-    GtkWidget *area;
-    GtkWidget *btn_bd_start;
-    GtkWidget *btn_bd_stop;
-    GtkWidget *grid;
-
-    struct box *box = box_alloc();
+    GtkWidget * window, * area, * btn_bd_start, * btn_bd_stop, * grid;
+    struct box * box = box_alloc();
 
     if (argc != 2) {
         printf("Usage: %s port.\n", argv[0]);
-
         return -1;
     }
 
@@ -130,19 +114,18 @@ int main(int argc, char *argv[])
 }
 
 static void
-broadcast_start(GtkWidget *widget, gpointer data)
+broadcast_start (GtkWidget * widget, gpointer data)
 {
-    struct box *box = data;
+    (void) widget;
+    struct box * box = data;
 
     if (box->d->is_bcast) {
         printf("The server is already started.\n");
-
         return;
     }
 
     if (device_init(box->dinfo) == -1) {
         printf("Failed to init the device.\n");
-
         return;
     }
 
@@ -158,7 +141,6 @@ broadcast_start(GtkWidget *widget, gpointer data)
 
     if (server_prepare(box->d) == -1) {
         printf("Failed to prepare the server.\n");
-
         return;
     }
 
@@ -173,13 +155,13 @@ broadcast_start(GtkWidget *widget, gpointer data)
 }
 
 static void
-broadcast_stop(GtkWidget *widget, gpointer data)
+broadcast_stop (GtkWidget * widget, gpointer data)
 {
-    struct box *box = data;
+    (void) widget;
+    struct box * box = data;
 
     if (!box->d->is_bcast) {
         printf("The server isn't started.\n");
-
         return;
     }
 
@@ -194,7 +176,6 @@ broadcast_stop(GtkWidget *widget, gpointer data)
 
     if (device_deinit(box->dinfo) == -1) {
         printf("Failed to deinit the device.\n");
-
         return;
     }
 
@@ -205,33 +186,27 @@ broadcast_stop(GtkWidget *widget, gpointer data)
 }
 
 static gboolean
-gsrc_dispatch(GSource *gsrc, GSourceFunc cb, gpointer data)
+gsrc_dispatch (GSource * gsrc, GSourceFunc cb, gpointer data)
 {
-    struct source *src = (struct source *) gsrc;
-    struct box *box = data;
-    unsigned int i;
+    (void) cb;
+    struct source * src = (struct source *) gsrc;
+    struct box * box = data;
+    unsigned i;
 
-    if (src->gpfd[0] != NULL) {
-        if (src->gpfd[0]->revents & G_IO_IN) {
+    if (src->gpfd[0] != NULL)
+        if (src->gpfd[0]->revents & G_IO_IN)
             if (buf_capture(box->dinfo) == -1) {
                 broadcast_stop(NULL, box);
-
                 return G_SOURCE_REMOVE;
             }
-        }
-    }
 
-    for (i = 1; i <= box->d->conn_q; i++) {
-        if (src->gpfd[i] != NULL) {
-            if (src->gpfd[i]->revents & G_IO_OUT) {
+    for (i = 1; i <= box->d->conn_q; i++)
+        if (src->gpfd[i] != NULL)
+            if (src->gpfd[i]->revents & G_IO_OUT)
                 if (frame_send(box, i - 1) == -1) {
                     conn_close(box, i - 1);
-
                     return G_SOURCE_CONTINUE;
                 }
-            }
-        }
-    }
 
     g_main_context_iteration(NULL, TRUE);
 
@@ -239,20 +214,19 @@ gsrc_dispatch(GSource *gsrc, GSourceFunc cb, gpointer data)
 }
 
 static gboolean
-conn_accept(GSocketService *sservice,
-            GSocketConnection *gconn,
-            GObject *object,
-            gpointer data)
+conn_accept (GSocketService * sservice, GSocketConnection * gconn,
+             GObject * object, gpointer data)
 {
-    struct box *box = data;
+    (void) sservice;
+    (void) object;
+    struct box * box = data;
 
     box->d->gconn[box->d->conn_q] = g_object_ref(gconn);
     box->d->gsock[box->d->conn_q] = g_socket_connection_get_socket(
         box->d->gconn[box->d->conn_q]);
-    box->d->src = (struct source *) g_source_new(&gsf,
-        sizeof(struct source));
+    box->d->src = (struct source *) g_source_new(&gsf, sizeof(struct source));
 
-    /* Add the connection's fd to the main event loop. */
+    /* Add connection's fd to the main event loop. */
     box->d->src->gpfd[box->d->conn_q + 1] = g_source_add_unix_fd(
         (GSource *) box->d->src,
         g_socket_get_fd(box->d->gsock[box->d->conn_q]), G_IO_OUT);
@@ -268,18 +242,18 @@ conn_accept(GSocketService *sservice,
 }
 
 static void
-conn_close(struct box *box, unsigned int connid)
+conn_close (struct box * box, unsigned int connid)
 {
     g_clear_object(&box->d->gconn[connid]);
 }
 
 static int
-server_prepare(struct data *d)
+server_prepare (struct data * d)
 {
-    GSocketAddress *gaddr;
+    GSocketAddress * gaddr;
     struct sockaddr_in servaddr;
     gboolean status;
-    GError *err = NULL;
+    GError * err = NULL;
 
     memset(&servaddr, 0, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
@@ -296,9 +270,7 @@ server_prepare(struct data *d)
             && servaddr.sin_port == d->servaddr.sin_port)
         /* The address is already listened. So, we don't need to add
          * it to the socket listener again. This is not an error.
-         * We just don't add the address to the listener, but
-         * continue send a data. */
-
+         * We just don't add the address to the listener. */
         return 0;
 
     d->servaddr = servaddr;
@@ -307,7 +279,6 @@ server_prepare(struct data *d)
     gaddr = g_socket_address_new_from_native(&servaddr, sizeof(servaddr));
     if (gaddr == NULL) {
         printf("Failed to convert a native to GSocketAddress.\n");
-
         return -1;
     }
 
@@ -316,7 +287,6 @@ server_prepare(struct data *d)
     if (!status) {
         printf("Failed to add the address into the socket listener.\n");
         error_throw(err);
-
         return -1;
     }
 
@@ -326,9 +296,9 @@ server_prepare(struct data *d)
 }
 
 static void
-server_stop(struct data *d)
+server_stop (struct data * d)
 {
-    unsigned int i;
+    unsigned i;
 
     g_socket_service_stop(d->sservice);
     g_socket_listener_close((GSocketListener *) d->sservice);
@@ -346,26 +316,20 @@ server_stop(struct data *d)
 }
 
 static int
-device_init(struct dev_info *dinfo)
+device_init (struct dev_info * dinfo)
 {
     if (device_open(dinfo) == -1)
         return -1;
-
     if (caps_print(dinfo->fd) == -1)
         return -1;
-
     if (format_set(dinfo->fd) == -1)
         return -1;
-
     if (buf_req(dinfo->fd) == -1)
         return -1;
-
     if (buf_alloc(dinfo) == -1)
         return -1;
-
     if (buf_map(dinfo) == -1)
         return -1;
-
     if (device_streamon(dinfo) == -1)
         return -1;
 
@@ -373,14 +337,12 @@ device_init(struct dev_info *dinfo)
 }
 
 static int
-device_deinit(struct dev_info *dinfo)
+device_deinit (struct dev_info * dinfo)
 {
     if (device_streamoff(dinfo) == -1)
         return -1;
-
     if (buf_unmap(dinfo) == -1)
         return -1;
-
     if (device_close(dinfo->fd) == -1)
         return -1;
 
@@ -388,9 +350,9 @@ device_deinit(struct dev_info *dinfo)
 }
 
 static gboolean
-frame_draw(gpointer data)
+frame_draw (gpointer data)
 {
-    struct data *d = data;
+    struct data * d = data;
 
     gtk_widget_queue_draw(d->area);
 
@@ -398,10 +360,10 @@ frame_draw(gpointer data)
 }
 
 static int
-frame_send(struct box *box, unsigned int connid)
+frame_send (struct box * box, unsigned int connid)
 {
     gssize bytes;
-    GError *err = NULL;
+    GError * err = NULL;
 
     bytes = g_socket_send(box->d->gsock[connid],
         (const gchar *) box->dinfo->buffer, YUV_RAW_LEN, NULL, &err);
@@ -425,52 +387,42 @@ frame_send(struct box *box, unsigned int connid)
 }
 
 static gboolean
-area_redraw(GtkWidget *widget, cairo_t *cr, gpointer data)
+area_redraw (GtkWidget * widget, cairo_t * cr, gpointer data)
 {
-    struct box *box = data;
-    GdkPixbuf *pixbuf;
-    guint8 *rgb_raw;
+    (void) widget;
+    struct box * box = data;
+    GdkPixbuf * pixbuf;
+    guint8 * rgb_raw;
     const GdkRectangle rect = {
         .x = 0,
         .y = 0,
         .width = PIX_WIDTH,
         .height = PIX_HEIGHT
     };
+    const GdkRGBA bg = {0};
 
     gdk_cairo_rectangle(cr, &rect);
 
     if (!box->d->is_bcast || buf_get_len(box->dinfo) < YUV_RAW_LEN) {
-        const GdkRGBA bg = {
-            .red = 0,
-            .green = 0,
-            .blue = 0,
-            .alpha = 0
-        };
-
         gdk_cairo_set_source_rgba(cr, &bg);
-
         cairo_fill(cr);
-
         return FALSE;
     }
 
     /* Draw the captured frame. */
     rgb_raw = yuv_to_rgb(box->dinfo->buffer);
-
     pixbuf = gdk_pixbuf_new_from_data(rgb_raw, GDK_COLORSPACE_RGB, FALSE,
         8, PIX_WIDTH, PIX_HEIGHT, 3 * PIX_WIDTH, NULL, NULL);
-
     gdk_cairo_set_source_pixbuf(cr, pixbuf, 0, 0);
-
     cairo_fill(cr);
 
     return FALSE;
 }
 
 static void
-error_throw(GError *err)
+error_throw (GError * err)
 {
-    if (err) {
+    if (err != NULL) {
         printf("%s\n", err->message);
 
         g_error_free(err);
@@ -478,9 +430,9 @@ error_throw(GError *err)
 }
 
 static struct box *
-box_alloc(void)
+box_alloc (void)
 {
-    struct box *box = g_malloc0(sizeof(struct box));
+    struct box * box = g_malloc0(sizeof(struct box));
 
     box->d = g_malloc0(sizeof(struct data));
     box->d->conn_q = 0;
@@ -492,20 +444,18 @@ box_alloc(void)
 }
 
 static void
-box_free(struct box *box)
+box_free (struct box * box)
 {
-    unsigned int i;
+    unsigned i;
 
     /* Unmap the frames storage. */
-    if (box->dinfo->buffer != NULL) {
+    if (box->dinfo->buffer != NULL)
         if (buf_unmap(box->dinfo) == -1)
             return;
-    }
 
-    for (i = 1; i <= box->d->conn_q; i++) {
+    for (i = 1; i <= box->d->conn_q; i++)
         if (box->d->gconn[i] != NULL)
             g_object_unref(box->d->gconn[i]);
-    }
 
     g_free(box->d);
     g_free(box->dinfo);
@@ -513,9 +463,10 @@ box_free(struct box *box)
 }
 
 static void
-app_quit(GtkWidget *widget, gpointer data)
+app_quit (GtkWidget * widget, gpointer data)
 {
-    struct box *box = data;
+    (void) widget;
+    struct box * box = data;
 
     if (box->d->is_bcast)
         broadcast_stop(NULL, box);
